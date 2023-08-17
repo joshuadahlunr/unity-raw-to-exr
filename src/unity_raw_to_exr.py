@@ -1,11 +1,12 @@
 import sys
-from os import path
+import os
+from pathlib import Path
 import math
 import numpy as np
 import imageio
 
 
-def raw_to_exr(raw_file_name):
+def raw_to_exr(raw_file_name, exr_file_name = None):
     # Define the Maximum Value for a C# short
     max_short = 32767  # 65535
 
@@ -53,14 +54,54 @@ def raw_to_exr(raw_file_name):
     exr_data = exr_data.astype("float32")
 
     # Define the name of the EXR file
-    exr_file_name = "%s.exr" % raw_file_name[:-4]
+    if exr_file_name is None:
+        exr_file_name = Path(raw_file_name).with_suffix(".exr")
 
     # Print out some statistics
     print("Minimum Height: %s  -  Maximum Height: %s  -  Number Of Points: %s  -  Image Shape: %s  -  EXR File: %s" %
           (min_value, max_value, len(height_data), exr_data.shape, exr_file_name))
 
     # Save the exr_data to an EXR file
-    imageio.imwrite(exr_file_name, exr_data)
+    imageio.v2.imwrite(exr_file_name, exr_data)
+
+def exr_to_raw(exr_file_name, raw_file_name = None):
+    # Load the EXR data from the file
+    exr_data = imageio.v2.imread(exr_file_name)
+
+    if len(exr_data.shape) == 3:
+        print("WARNING: EXR image encoded as RGB, converting only the red channel!")
+        exr_data = exr_data[:, :, 0]
+
+    # Flatten the 2D array to a 1D array of normalized float values
+    height_data = exr_data.flatten()
+
+    # Define the Maximum Value for a C# short
+    max_short = 32767  # 65535
+
+    # Define the name of the RAW file
+    if raw_file_name is None:
+        raw_file_name = Path(exr_file_name).with_suffix(".raw")
+
+    # Open the RAW file for writing in binary mode
+    with open(raw_file_name, "wb") as file:
+        # Loop through each normalized float value in height_data
+        for float_value in height_data:
+            # Convert the normalized float value to a short value
+            short_value = int(float_value * max_short)
+
+            # Convert the short value to bytes in little-endian format
+            byte_data = short_value.to_bytes(2, byteorder="little")
+
+            # Write the byte data to the RAW file
+            file.write(byte_data)
+
+    # Print out some statistics
+    min_value = int(np.min(height_data) * max_short)
+    max_value = int(np.max(height_data) * max_short)
+    num_points = len(height_data)
+    image_shape = exr_data.shape
+    print("Minimum Height: %s  -  Maximum Height: %s  -  Number Of Points: %s  -  Image Shape: %s  -  RAW File: %s" %
+          (min_value, max_value, num_points, image_shape, raw_file_name))
 
 
 if __name__ == '__main__':
@@ -72,11 +113,17 @@ if __name__ == '__main__':
         sys.exit("No Input File")
 
     # Get the input_file_name from the command-line arguments
-    input_file_name = sys.argv[1]
+    input_file_name = Path(sys.argv[1])
 
     # If the input_file_name does not exist, exit with an error
-    if not path.exists(input_file_name):
+    if not input_file_name.exists():
         sys.exit("%s does not exist" % input_file_name)
 
-    # Convert the input_file_name from RAW to EXR
-    raw_to_exr(input_file_name)
+
+    if input_file_name.suffix in [".raw", ".r16"]:
+        # Convert the input_file_name from RAW to EXR
+        raw_to_exr(input_file_name)
+    elif input_file_name.suffix in [".exr"]:
+        # Convert the input_file_name from EXR to RAW
+        exr_to_raw(input_file_name)
+    else: sys.exit("Input file must be a .raw/.r16 or a .exr")
